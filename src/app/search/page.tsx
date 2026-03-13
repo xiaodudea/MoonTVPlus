@@ -729,6 +729,9 @@ function SearchPageClient() {
         try { eventSourceRef.current.close(); } catch { }
         eventSourceRef.current = null;
       }
+      // 先设置加载状态，再清空结果，避免短暂显示"暂无搜索结果"
+      setIsLoading(true);
+      setShowResults(true);
       setSearchResults([]);
       setTotalSources(0);
       setCompletedSources(0);
@@ -738,8 +741,6 @@ function SearchPageClient() {
         clearTimeout(flushTimerRef.current);
         flushTimerRef.current = null;
       }
-      setIsLoading(true);
-      setShowResults(true);
 
       // 每次搜索时重新读取设置，确保使用最新的配置
       let currentFluidSearch = useFluidSearch;
@@ -945,6 +946,8 @@ function SearchPageClient() {
     setSearchQuery(trimmed);
     setShowResults(true);
     setShowSuggestions(false);
+    // 立即设置加载状态，避免显示"未找到相关结果"
+    setIsLoading(true);
 
     // 根据当前选项卡执行不同的搜索
     if (activeTab === 'video') {
@@ -982,6 +985,8 @@ function SearchPageClient() {
 
     // 自动执行搜索
     setShowResults(true);
+    // 立即设置加载状态，避免显示"未找到相关结果"
+    setIsLoading(true);
 
     // 根据当前选项卡执行不同的搜索
     if (activeTab === 'video') {
@@ -1345,6 +1350,8 @@ function SearchPageClient() {
                       onClick={() => {
                         setSearchQuery(item);
                         setShowResults(true);
+                        // 立即设置加载状态，避免显示"未找到相关结果"
+                        setIsLoading(true);
 
                         // 根据当前选项卡执行不同的搜索
                         if (activeTab === 'video') {
