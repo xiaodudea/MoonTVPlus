@@ -618,6 +618,28 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
     }
   }
 
+  if (!adminConfig.NetDiskConfig) {
+    adminConfig.NetDiskConfig = {
+      Quark: {
+        Enabled: false,
+        Cookie: '',
+        SavePath: '/',
+        PlayTempSavePath: '/',
+        OpenListTempPath: '/',
+      },
+    };
+  }
+
+  if (!adminConfig.NetDiskConfig.Quark) {
+    adminConfig.NetDiskConfig.Quark = {
+      Enabled: false,
+      Cookie: '',
+      SavePath: '/',
+      PlayTempSavePath: '/',
+      OpenListTempPath: '/',
+    };
+  }
+
   // 确保音乐配置存在
   if (!adminConfig.MusicConfig) {
     adminConfig.MusicConfig = {

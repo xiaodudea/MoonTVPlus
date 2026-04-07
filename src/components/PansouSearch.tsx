@@ -2,7 +2,8 @@
 'use client';
 
 import { AlertCircle, Copy, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
-import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
 
 import { PansouLink, PansouSearchResult } from '@/lib/pansou.client';
 
@@ -51,11 +52,14 @@ export default function PansouSearch({
   triggerSearch,
   onError,
 }: PansouSearchProps) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<PansouSearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string>('all'); // 'all' 表示显示全部
+  const [transferingUrl, setTransferingUrl] = useState<string | null>(null);
+  const [playingUrl, setPlayingUrl] = useState<string | null>(null);
 
   // 提取搜索函数，以便在重试时调用
   const searchPansou = useCallback(async () => {
@@ -116,6 +120,63 @@ export default function PansouSearch({
 
   const handleOpenLink = (url: string) => {
     window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleQuarkTransfer = async (link: PansouLink) => {
+    try {
+      setTransferingUrl(link.url);
+      const response = await fetch('/api/quark/transfer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          shareUrl: link.url,
+          passcode: link.password || '',
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || '转存失败');
+      }
+
+      window.alert(`转存成功，已保存到：${data.targetPath}`);
+    } catch (err: any) {
+      window.alert(err?.message || '转存失败');
+    } finally {
+      setTransferingUrl(null);
+    }
+  };
+
+  const handleQuarkInstantPlay = async (link: PansouLink) => {
+    try {
+      setPlayingUrl(link.url);
+      const response = await fetch('/api/quark/instant-play', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          shareUrl: link.url,
+          passcode: link.password || '',
+          title: link.note || keyword,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || '立即播放失败');
+      }
+
+      router.push(
+        `/play?source=quark-temp&id=${encodeURIComponent(data.id)}&title=${encodeURIComponent(data.title || keyword)}`
+      );
+    } catch (err: any) {
+      window.alert(err?.message || '立即播放失败');
+    } finally {
+      setPlayingUrl(null);
+    }
   };
 
   if (loading) {
@@ -196,7 +257,6 @@ export default function PansouSearch({
         </button>
         {typeStats.map(({ type, count }) => {
           const typeName = CLOUD_TYPE_NAMES[type] || type;
-          const typeColor = CLOUD_TYPE_COLORS[type] || CLOUD_TYPE_COLORS.others;
 
           return (
             <button
@@ -263,6 +323,26 @@ export default function PansouSearch({
 
                     {/* 操作按钮 */}
                     <div className='flex items-center gap-1 flex-shrink-0'>
+                      {cloudType === 'quark' && (
+                        <>
+                          <button
+                            onClick={() => handleQuarkInstantPlay(link)}
+                            disabled={playingUrl === link.url}
+                            className='px-2 py-1 rounded-md bg-green-600 hover:bg-green-700 text-white text-xs transition-colors disabled:opacity-60'
+                            title='立即播放'
+                          >
+                            {playingUrl === link.url ? '处理中...' : '立即播放'}
+                          </button>
+                          <button
+                            onClick={() => handleQuarkTransfer(link)}
+                            disabled={transferingUrl === link.url}
+                            className='px-2 py-1 rounded-md bg-purple-600 hover:bg-purple-700 text-white text-xs transition-colors disabled:opacity-60'
+                            title='转存到配置目录'
+                          >
+                            {transferingUrl === link.url ? '转存中...' : '转存'}
+                          </button>
+                        </>
+                      )}
                       <button
                         onClick={() => handleCopy(
                           link.password ? `${link.url}\n提取码: ${link.password}` : link.url,

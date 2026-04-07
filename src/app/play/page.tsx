@@ -1413,6 +1413,7 @@ function PlayPageClient() {
     !isM3u8LikeUrl(videoUrl) &&
     (
       detail.source === 'openlist' ||
+      detail.source === 'quark-temp' ||
       detail.source === 'xiaoya' ||
       detail.source.startsWith('emby')
     )
@@ -9161,6 +9162,7 @@ function PlayPageClient() {
             // 特殊源使用 tmdb，其他使用 cms（通过 doubanId）
             // 如果有豆瓣ID且不为0，传入doubanId
             detail.source === 'openlist' ||
+              detail.source === 'quark-temp' ||
               detail.source?.startsWith('emby') ||
               detail.source === 'xiaoya'
               ? undefined
@@ -9171,6 +9173,7 @@ function PlayPageClient() {
           tmdbId={
             // 特殊源使用 tmdb
             detail.source === 'openlist' ||
+              detail.source === 'quark-temp' ||
               detail.source?.startsWith('emby') ||
               detail.source === 'xiaoya'
               ? detail.tmdb_id
@@ -9182,6 +9185,7 @@ function PlayPageClient() {
             // 非特殊源使用 cms 数据
             // 但如果有豆瓣ID且不为0，则不传入cmsData，优先使用豆瓣数据
             detail.source !== 'openlist' &&
+              detail.source !== 'quark-temp' &&
               !detail.source?.startsWith('emby') &&
               detail.source !== 'xiaoya' &&
               !(detail.douban_id && detail.douban_id !== 0)

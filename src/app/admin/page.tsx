@@ -30,6 +30,7 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronUp,
+  Cloud,
   Database,
   ExternalLink,
   FileText,
@@ -3495,6 +3496,219 @@ const OpenListConfigComponent = ({
           onCorrect={handleCorrectSuccess}
         />
       )}
+    </div>
+  );
+};
+
+const NetDiskConfigComponent = ({
+  config,
+  refreshConfig,
+}: {
+  config: AdminConfig | null;
+  refreshConfig: () => Promise<void>;
+}) => {
+  const { alertModal, showAlert, hideAlert } = useAlertModal();
+  const { isLoading, withLoading } = useLoadingState();
+  const [enabled, setEnabled] = useState(false);
+  const [cookie, setCookie] = useState('');
+  const [savePath, setSavePath] = useState('/');
+  const [playTempSavePath, setPlayTempSavePath] = useState('/');
+  const [openListTempPath, setOpenListTempPath] = useState('/');
+
+  useEffect(() => {
+    const quark = config?.NetDiskConfig?.Quark;
+    setEnabled(quark?.Enabled || false);
+    setCookie(quark?.Cookie || '');
+    setSavePath(quark?.SavePath || '/');
+    setPlayTempSavePath(quark?.PlayTempSavePath || '/');
+    setOpenListTempPath(quark?.OpenListTempPath || '/');
+  }, [config]);
+
+  const handleSave = async () => {
+    await withLoading('saveNetDisk', async () => {
+      const response = await fetch('/api/admin/netdisk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save',
+          Quark: {
+            Enabled: enabled,
+            Cookie: cookie,
+            SavePath: savePath,
+            PlayTempSavePath: playTempSavePath,
+            OpenListTempPath: openListTempPath,
+          },
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || '保存失败');
+      }
+
+      showSuccess('保存成功', showAlert);
+      await refreshConfig();
+    });
+  };
+
+  const handleValidate = async () => {
+    await withLoading('validateNetDisk', async () => {
+      try {
+        const response = await fetch('/api/admin/netdisk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'validate',
+            Quark: {
+              Cookie: cookie,
+              SavePath: savePath,
+              PlayTempSavePath: playTempSavePath,
+            },
+          }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || '校验失败');
+        }
+
+        showSuccess(data.message || '夸克 Cookie 可读', showAlert);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : '校验失败', showAlert);
+        throw error;
+      }
+    });
+  };
+
+  return (
+    <div className='space-y-6'>
+      <details className='pt-4 border-t border-gray-200 dark:border-gray-700'>
+        <summary className='text-sm font-semibold text-gray-900 dark:text-gray-100 cursor-pointer'>
+          夸克网盘
+        </summary>
+        <div className='mt-4 space-y-4'>
+          <div className='bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4'>
+            <div className='flex items-center gap-2 mb-2'>
+              <Cloud className='w-5 h-5 text-blue-600 dark:text-blue-400' />
+              <span className='text-sm font-medium text-blue-800 dark:text-blue-300'>
+                夸克网盘说明
+              </span>
+            </div>
+            <div className='text-sm text-blue-700 dark:text-blue-400 space-y-1'>
+              <p>• 转存：把整个分享保存到夸克正式目录。</p>
+              <p>• 立即播放：将分享内所有视频文件转存到临时播放目录，再通过 OpenList 临时目录直接播放。</p>
+              <p>• OpenList 临时目录必须映射到夸克临时播放目录，否则立即播放无法找到文件。</p>
+            </div>
+          </div>
+
+          <div className='flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700'>
+            <div>
+              <h3 className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                启用夸克网盘
+              </h3>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                开启后，网盘搜索中的夸克资源会显示“立即播放”和“转存”按钮
+              </p>
+            </div>
+            <label className='relative inline-flex items-center cursor-pointer'>
+              <input
+                type='checkbox'
+                checked={enabled}
+                onChange={(e) => setEnabled(e.target.checked)}
+                className='sr-only peer'
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              Cookie
+            </label>
+            <textarea
+              value={cookie}
+              onChange={(e) => setCookie(e.target.value)}
+              disabled={!enabled}
+              rows={5}
+              placeholder='粘贴夸克网盘 Cookie'
+              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed'
+            />
+          </div>
+
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              转存位置
+            </label>
+            <input
+              type='text'
+              value={savePath}
+              onChange={(e) => setSavePath(e.target.value)}
+              disabled={!enabled}
+              placeholder='/影视/正式转存'
+              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed'
+            />
+          </div>
+
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              播放临时转存位置
+            </label>
+            <input
+              type='text'
+              value={playTempSavePath}
+              onChange={(e) => setPlayTempSavePath(e.target.value)}
+              disabled={!enabled}
+              placeholder='/影视/.play-temp'
+              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed'
+            />
+          </div>
+
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              OpenList 临时目录
+            </label>
+            <input
+              type='text'
+              value={openListTempPath}
+              onChange={(e) => setOpenListTempPath(e.target.value)}
+              disabled={!enabled}
+              placeholder='/Quark/影视/.play-temp'
+              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed'
+            />
+            <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+              OpenList 中能访问到临时播放目录的路径。
+            </p>
+          </div>
+
+          <div className='flex gap-3'>
+            <button
+              onClick={handleValidate}
+              disabled={!enabled || !cookie || isLoading('validateNetDisk')}
+              className={buttonStyles.primary}
+            >
+              {isLoading('validateNetDisk') ? '校验中...' : '校验夸克配置'}
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isLoading('saveNetDisk')}
+              className={buttonStyles.success}
+            >
+              {isLoading('saveNetDisk') ? '保存中...' : '保存配置'}
+            </button>
+          </div>
+        </div>
+      </details>
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={hideAlert}
+        type={alertModal.type}
+        title={alertModal.title}
+        message={alertModal.message}
+        timer={alertModal.timer}
+        showConfirm={alertModal.showConfirm}
+        onConfirm={alertModal.onConfirm}
+      />
     </div>
   );
 };
@@ -12732,6 +12946,7 @@ function AdminPageClient() {
     sourceScriptLab: false,
     mediaLibrary: false,
     openListConfig: false,
+    netDiskConfig: false,
     embyConfig: false,
     xiaoyaConfig: false,
     animeSubscription: false,
@@ -13209,6 +13424,17 @@ function AdminPageClient() {
                   onToggle={() => toggleTab('animeSubscription')}
                 >
                   <AnimeSubscriptionComponent config={config} refreshConfig={fetchConfig} />
+                </CollapsibleTab>
+
+                <CollapsibleTab
+                  title='网盘配置'
+                  icon={
+                    <Cloud size={20} className='text-gray-600 dark:text-gray-400' />
+                  }
+                  isExpanded={expandedTabs.netDiskConfig}
+                  onToggle={() => toggleTab('netDiskConfig')}
+                >
+                  <NetDiskConfigComponent config={config} refreshConfig={fetchConfig} />
                 </CollapsibleTab>
               </div>
             </CollapsibleTab>

@@ -143,6 +143,15 @@ export interface AdminConfig {
     ScanMode?: 'torrent' | 'name' | 'hybrid'; // 扫描模式：torrent=种子库匹配，name=名字匹配，hybrid=混合模式（默认）
     DisableVideoPreview?: boolean; // 禁用预览视频，直接返回直连链接
   };
+  NetDiskConfig?: {
+    Quark?: {
+      Enabled: boolean;
+      Cookie: string;
+      SavePath: string;
+      PlayTempSavePath: string;
+      OpenListTempPath: string;
+    };
+  };
   AIConfig?: {
     Enabled: boolean; // 是否启用AI问片功能
     Provider: 'openai' | 'claude' | 'custom'; // AI服务提供商
