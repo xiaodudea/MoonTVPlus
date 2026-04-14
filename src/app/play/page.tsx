@@ -9,6 +9,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import {
   convertDanmakuFormat,
+  clearDanmakuCacheByTitle,
   getDanmakuById,
   getDanmakuFromCache,
   getEpisodes,
@@ -4254,6 +4255,17 @@ function PlayPageClient() {
 
       // 尝试跳转到当前正在播放的集数
       let targetIndex = currentEpisodeIndex;
+
+      // 如果新源的集数跟旧源的集数不一致，清除当前剧集的所有弹幕缓存
+      const oldEpisodeCount = detail?.episodes?.length || 0;
+      const newEpisodeCount = newDetail.episodes?.length || 0;
+      if (oldEpisodeCount > 0 && newEpisodeCount > 0 && oldEpisodeCount !== newEpisodeCount) {
+        const titleForCache = detail?.title || videoTitle;
+        console.log(`换源集数不一致 (${oldEpisodeCount} -> ${newEpisodeCount})，清除弹幕缓存: ${titleForCache}`);
+        clearDanmakuCacheByTitle(titleForCache).catch((err) => {
+          console.error('清除弹幕缓存失败:', err);
+        });
+      }
 
       // 如果当前集数超出新源的范围，则跳转到第一集
       if (!newDetail.episodes || targetIndex >= newDetail.episodes.length) {

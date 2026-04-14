@@ -2,6 +2,7 @@
 import {
   clearAllDanmakuCache,
   clearDanmakuCache,
+  clearDanmakuCacheByTitle,
   clearExpiredDanmakuCache,
   generateCacheKey,
   getDanmakuCacheStats,
@@ -43,6 +44,7 @@ export function initDanmakuModule(): void {
 export {
   clearAllDanmakuCache,
   clearDanmakuCache,
+  clearDanmakuCacheByTitle,
   clearExpiredDanmakuCache,
   generateCacheKey,
   getDanmakuCacheStats,
