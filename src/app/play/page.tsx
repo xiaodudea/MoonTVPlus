@@ -1645,6 +1645,16 @@ function PlayPageClient() {
     return true;
   });
 
+  const [preferStrategy] = useState<'fast' | 'full'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('preferStrategy');
+      if (saved === 'fast' || saved === 'full') {
+        return saved;
+      }
+    }
+    return 'fast';
+  });
+
   // 保存优选时的测速结果，避免EpisodeSelector重复测速
   const [precomputedVideoInfo, setPrecomputedVideoInfo] = useState<
     Map<string, { quality: string; loadSpeed: string; pingTime: number; bitrate: string }>
@@ -1860,145 +1870,217 @@ function PlayPageClient() {
   ): Promise<SearchResult> => {
     if (sources.length === 1) return sources[0];
 
-    // 将播放源均分为两批，并发测速各批，避免一次性过多请求
-    const batchSize = Math.ceil(sources.length / 2);
-    const allResults: Array<{
+    type SourceTestResult = {
       source: SearchResult;
       testResult: { quality: string; loadSpeed: string; pingTime: number; bitrate: string };
-    } | null> = [];
+    };
+    type MaybeSourceTestResult = SourceTestResult | null;
 
-    for (let start = 0; start < sources.length; start += batchSize) {
-      const batchSources = sources.slice(start, start + batchSize);
-      const batchResults = await Promise.all(
-        batchSources.map(async (source) => {
-          try {
-            // 检查是否有第一集的播放地址
-            if (!source.episodes || source.episodes.length === 0) {
-              console.warn(`播放源 ${source.source_name} 没有可用的播放地址`);
-              return null;
-            }
+    const sortedByWeight = [...sources].sort((a, b) => {
+      const weightA = a.weight ?? 0;
+      const weightB = b.weight ?? 0;
+      return weightB - weightA;
+    });
 
-            let episodeUrl =
-              source.episodes.length > 1
-                ? source.episodes[1]
-                : source.episodes[0];
-
-            // 对优选源进行测速时也需要考虑代理情况
-            const isM3u8 = episodeUrl.toLowerCase().includes('.m3u') || !episodeUrl.toLowerCase().match(/\.(mp4|flv|webm|mkv|avi|mov)(\?.*)?$/);
-            if (source.source === 'directplay' && isM3u8) {
-              if (isDirectplayDomainProxied(episodeUrl)) {
-                const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
-                episodeUrl = `/api/proxy-m3u8?url=${encodeURIComponent(episodeUrl)}&source=directplay${tokenParam}`;
-              }
-            } else if (source.proxyMode && isM3u8) {
-              episodeUrl = `/api/proxy/vod/m3u8?url=${encodeURIComponent(episodeUrl)}&source=${encodeURIComponent(source.source)}`;
-            }
-
-            const testResult = await getVideoResolutionFromM3u8(episodeUrl);
-
-            return {
-              source,
-              testResult,
-            };
-          } catch (error) {
-            return null;
-          }
-        })
-      );
-      allResults.push(...batchResults);
-    }
-
-    // 等待所有测速完成，包含成功和失败的结果
-    // 保存所有测速结果到 precomputedVideoInfo，供 EpisodeSelector 使用（包含错误结果）
-    const newVideoInfoMap = new Map<
-      string,
-      {
-        quality: string;
-        loadSpeed: string;
-        pingTime: number;
-        bitrate: string;
-        hasError?: boolean;
-      }
-    >();
-    allResults.forEach((result, index) => {
-      const source = sources[index];
-      const sourceKey = `${source.source}-${source.id}`;
-
-      if (result) {
-        // 成功的结果
+    const finalizeSelection = (
+      completedResults: MaybeSourceTestResult[]
+    ): SearchResult => {
+      const newVideoInfoMap = new Map<
+        string,
+        {
+          quality: string;
+          loadSpeed: string;
+          pingTime: number;
+          bitrate: string;
+        }
+      >();
+      completedResults.forEach((result) => {
+        if (!result) return;
+        const sourceKey = `${result.source.source}-${result.source.id}`;
         newVideoInfoMap.set(sourceKey, result.testResult);
-      }
-    });
-
-    // 过滤出成功的结果用于优选计算
-    const successfulResults = allResults.filter(Boolean) as Array<{
-      source: SearchResult;
-      testResult: { quality: string; loadSpeed: string; pingTime: number; bitrate: string };
-    }>;
-
-    setPrecomputedVideoInfo(newVideoInfoMap);
-
-    // 如果所有测速都失败，仍然按权重排序返回
-    if (successfulResults.length === 0) {
-      console.warn('所有播放源测速都失败，按权重排序');
-      const sortedByWeight = [...sources].sort((a, b) => {
-        const weightA = a.weight ?? 0;
-        const weightB = b.weight ?? 0;
-        return weightB - weightA;
       });
-      return sortedByWeight[0];
+      setPrecomputedVideoInfo(newVideoInfoMap);
+
+      const successfulResults = completedResults.filter(
+        Boolean
+      ) as SourceTestResult[];
+
+      if (successfulResults.length === 0) {
+        console.warn('所有播放源测速都失败，按权重排序');
+        return sortedByWeight[0];
+      }
+
+      const validSpeeds = successfulResults
+        .map((result) => {
+          const speedStr = result.testResult.loadSpeed;
+          if (speedStr === '未知' || speedStr === '测量中...') return 0;
+
+          const match = speedStr.match(/^([\d.]+)\s*(KB\/s|MB\/s)$/);
+          if (!match) return 0;
+
+          const value = parseFloat(match[1]);
+          const unit = match[2];
+          return unit === 'MB/s' ? value * 1024 : value;
+        })
+        .filter((speed) => speed > 0);
+
+      const maxSpeed = validSpeeds.length > 0 ? Math.max(...validSpeeds) : 1024;
+
+      const validPings = successfulResults
+        .map((result) => result.testResult.pingTime)
+        .filter((ping) => ping > 0);
+
+      const minPing = validPings.length > 0 ? Math.min(...validPings) : 50;
+      const maxPing = validPings.length > 0 ? Math.max(...validPings) : 1000;
+
+      const resultsWithScore = successfulResults.map((result) => ({
+        ...result,
+        score: calculateSourceScore(
+          result.testResult,
+          maxSpeed,
+          minPing,
+          maxPing,
+          result.source.weight ?? 0
+        ),
+      }));
+
+      resultsWithScore.sort((a, b) => b.score - a.score);
+
+      console.log('播放源评分排序结果:');
+      resultsWithScore.forEach((result, index) => {
+        console.log(
+          `${index + 1}. ${result.source.source_name
+          } - 评分: ${result.score.toFixed(2)} (${result.testResult.quality}, ${result.testResult.loadSpeed
+          }, ${result.testResult.pingTime}ms)`
+        );
+      });
+
+      return resultsWithScore[0].source;
+    };
+
+    const testSingleSource = async (
+      source: SearchResult
+    ): Promise<MaybeSourceTestResult> => {
+      try {
+        if (!source.episodes || source.episodes.length === 0) {
+          console.warn(`播放源 ${source.source_name} 没有可用的播放地址`);
+          return null;
+        }
+
+        let episodeUrl =
+          source.episodes.length > 1
+            ? source.episodes[1]
+            : source.episodes[0];
+
+        const isM3u8 = episodeUrl.toLowerCase().includes('.m3u') || !episodeUrl.toLowerCase().match(/\.(mp4|flv|webm|mkv|avi|mov)(\?.*)?$/);
+        if (source.source === 'directplay' && isM3u8) {
+          if (isDirectplayDomainProxied(episodeUrl)) {
+            const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
+            episodeUrl = `/api/proxy-m3u8?url=${encodeURIComponent(episodeUrl)}&source=directplay${tokenParam}`;
+          }
+        } else if (source.proxyMode && isM3u8) {
+          episodeUrl = `/api/proxy/vod/m3u8?url=${encodeURIComponent(episodeUrl)}&source=${encodeURIComponent(source.source)}`;
+        }
+
+        const testResult = await getVideoResolutionFromM3u8(episodeUrl);
+
+        return {
+          source,
+          testResult,
+        };
+      } catch (error) {
+        return null;
+      }
+    };
+
+    const maxConcurrency = Math.ceil(sources.length / 2);
+
+    const runAllWithSameConcurrency = async (): Promise<MaybeSourceTestResult[]> => {
+      const results: MaybeSourceTestResult[] = new Array(sources.length);
+      let nextIndex = 0;
+
+      const worker = async () => {
+        while (nextIndex < sources.length) {
+          const currentIndex = nextIndex++;
+          results[currentIndex] = await testSingleSource(sources[currentIndex]);
+        }
+      };
+
+      await Promise.all(
+        Array.from({ length: Math.min(maxConcurrency, sources.length) }, () =>
+          worker()
+        )
+      );
+
+      return results;
+    };
+
+    if (preferStrategy === 'full' || sortedByWeight.length < 5) {
+      const allResults = await runAllWithSameConcurrency();
+      return finalizeSelection(allResults);
     }
 
-    // 找出所有有效速度的最大值，用于线性映射
-    const validSpeeds = successfulResults
-      .map((result) => {
-        const speedStr = result.testResult.loadSpeed;
-        if (speedStr === '未知' || speedStr === '测量中...') return 0;
+    const topPriorityKeys = new Set(
+      sortedByWeight
+        .slice(0, 5)
+        .map((source) => `${source.source}-${source.id}`)
+    );
 
-        const match = speedStr.match(/^([\d.]+)\s*(KB\/s|MB\/s)$/);
-        if (!match) return 0;
+    const quickResults = await new Promise<MaybeSourceTestResult[]>((resolve) => {
+      const results: Array<MaybeSourceTestResult | undefined> = new Array(sources.length);
+      let nextIndex = 0;
+      let activeCount = 0;
+      let completedCount = 0;
+      let topCompletedCount = 0;
+      let topSuccessCount = 0;
+      let settled = false;
 
-        const value = parseFloat(match[1]);
-        const unit = match[2];
-        return unit === 'MB/s' ? value * 1024 : value; // 统一转换为 KB/s
-      })
-      .filter((speed) => speed > 0);
+      const maybeResolve = () => {
+        if (settled) return;
 
-    const maxSpeed = validSpeeds.length > 0 ? Math.max(...validSpeeds) : 1024; // 默认1MB/s作为基准
+        if (topCompletedCount === 5 && topSuccessCount > 0) {
+          settled = true;
+          resolve(
+            results.filter((result) => result !== undefined) as MaybeSourceTestResult[]
+          );
+          return;
+        }
 
-    // 找出所有有效延迟的最小值和最大值，用于线性映射
-    const validPings = successfulResults
-      .map((result) => result.testResult.pingTime)
-      .filter((ping) => ping > 0);
+        if (completedCount === sources.length) {
+          settled = true;
+          resolve(results as MaybeSourceTestResult[]);
+          return;
+        }
 
-    const minPing = validPings.length > 0 ? Math.min(...validPings) : 50;
-    const maxPing = validPings.length > 0 ? Math.max(...validPings) : 1000;
+        while (!settled && activeCount < maxConcurrency && nextIndex < sources.length) {
+          const currentIndex = nextIndex++;
+          const currentSource = sources[currentIndex];
+          const sourceKey = `${currentSource.source}-${currentSource.id}`;
+          activeCount += 1;
 
-    // 计算每个结果的评分
-    const resultsWithScore = successfulResults.map((result) => ({
-      ...result,
-      score: calculateSourceScore(
-        result.testResult,
-        maxSpeed,
-        minPing,
-        maxPing,
-        result.source.weight ?? 0
-      ),
-    }));
+          testSingleSource(currentSource)
+            .then((result) => {
+              results[currentIndex] = result;
+              completedCount += 1;
 
-    // 按综合评分排序，选择最佳播放源
-    resultsWithScore.sort((a, b) => b.score - a.score);
+              if (topPriorityKeys.has(sourceKey)) {
+                topCompletedCount += 1;
+                if (result) {
+                  topSuccessCount += 1;
+                }
+              }
+            })
+            .finally(() => {
+              activeCount -= 1;
+              maybeResolve();
+            });
+        }
+      };
 
-    console.log('播放源评分排序结果:');
-    resultsWithScore.forEach((result, index) => {
-      console.log(
-        `${index + 1}. ${result.source.source_name
-        } - 评分: ${result.score.toFixed(2)} (${result.testResult.quality}, ${result.testResult.loadSpeed
-        }, ${result.testResult.pingTime}ms)`
-      );
+      maybeResolve();
     });
 
-    return resultsWithScore[0].source;
+    return finalizeSelection(quickResults);
   };
 
   // 计算播放源综合评分
